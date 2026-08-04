@@ -186,3 +186,36 @@ pub async fn get_url_stats(
         created_at: record.created_at,
     }))
 }
+
+
+async fn generate_unique_code(
+    collection: &mongodb::Collection<UrlRecord>,
+) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+    // Try multiple times because random collisions are rare but possible.
+    for _ in 0..5 {
+        let code = generate_short_code();
+
+        // Check if this code already exists.
+        let existing = collection
+            .find_one(doc! { "code": &code })
+            .await
+            .map_err(|_| {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "database_error",
+                    "failed to check short code uniqueness",
+                )
+            })?;
+
+        // If no document exists with this code, use it.
+        if existing.is_none() {
+            return Ok(code);
+        }
+    }
+
+    Err(error_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "code_generation_failed",
+        "failed to generate unique short code",
+    ))
+}
