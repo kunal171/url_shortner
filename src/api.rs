@@ -1,23 +1,22 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::IntoResponse,
-    Json,
 };
 
 use mongodb::{
-    bson::{doc, DateTime},
     Database,
+    bson::{DateTime, doc},
 };
 
-use crate::url::{
-    generate_short_code, CreateShortUrlRequest, CreateShortUrlResponse, UrlStatsResponse, 
-    UrlRecord, validate_long_url,
-};
 use crate::error::{ErrorResponse, error_response};
+use crate::url::{
+    CreateShortUrlRequest, CreateShortUrlResponse, UrlRecord, UrlStatsResponse,
+    generate_short_code, validate_long_url,
+};
 
-
-#[derive(Clone)] 
+#[derive(Clone)]
 pub struct AppState {
     // MongoDB database handle shared by handlers.
     pub database: Database,
@@ -35,19 +34,15 @@ pub async fn create_short_url(
     State(state): State<AppState>,
     Json(payload): Json<CreateShortUrlRequest>,
 ) -> Result<Json<CreateShortUrlResponse>, (StatusCode, Json<ErrorResponse>)> {
-
     // Reject invalid URLs before generating or saving anything.
     validate_long_url(&payload.long_url)
-        .map_err(|message| {
-            error_response(
-                StatusCode::BAD_REQUEST,
-                "invalid_url",
-                &message,
-            )
-        })?;
+        .map_err(|message| error_response(StatusCode::BAD_REQUEST, "invalid_url", &message))?;
 
-    //Generate the Random short code for the URL.
-    let code = generate_short_code();
+    // Select the MongoDB collection.
+    let collection = state.database.collection::<UrlRecord>("urls");
+
+    // Generate a short code that does not already exist.
+    let code = generate_unique_code(&collection).await?;
 
     // Build the MongoDB document we want to save.
     let record = UrlRecord {
@@ -58,19 +53,13 @@ pub async fn create_short_url(
         created_at: DateTime::now(),
     };
 
-    // Select the MongoDB collection.
-    let collection = state.database.collection::<UrlRecord>("urls");
-
-    collection
-        .insert_one(record)
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "database_error",
-                "failed to save short URL",
-            )
-        })?;
+    collection.insert_one(record).await.map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database_error",
+            "failed to save short URL",
+        )
+    })?;
 
     // Build the full short URL returned to the client.
     let short_url = format!("{}/{}", state.base_url, code);
@@ -96,13 +85,13 @@ pub async fn redirect_short_url(
         .await
         .map_err(|_| {
             error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "database_error",
-            "object not found",
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "database_error",
+                "object not found",
             )
         })?;
 
-     // If code does not exist, return 404.
+    // If code does not exist, return 404.
     let Some(record) = record else {
         return Err(error_response(
             StatusCode::NOT_FOUND,
@@ -113,10 +102,7 @@ pub async fn redirect_short_url(
 
     // Increase visit count by 1.
     collection
-        .update_one(
-            doc! { "code": &code },
-            doc! { "$inc": { "visits": 1 } },
-        )
+        .update_one(doc! { "code": &code }, doc! { "$inc": { "visits": 1 } })
         .await
         .map_err(|_| {
             error_response(
@@ -126,25 +112,22 @@ pub async fn redirect_short_url(
             )
         })?;
 
-
     let mut headers = HeaderMap::new();
 
     // Set Location header to original long URL.
-    let location = HeaderValue::from_str(&record.long_url)
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Redirect error ",
-                "failed to set redirect url",
-            )
-        })?;
+    let location = HeaderValue::from_str(&record.long_url).map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Redirect error ",
+            "failed to set redirect url",
+        )
+    })?;
 
     headers.insert(header::LOCATION, location);
 
     // Return 302 redirect.
     Ok((StatusCode::FOUND, headers))
 }
-
 
 pub async fn get_url_stats(
     State(state): State<AppState>,
@@ -165,7 +148,7 @@ pub async fn get_url_stats(
             )
         })?;
 
-     // If code does not exist, return 404.
+    // If code does not exist, return 404.
     let Some(record) = record else {
         return Err(error_response(
             StatusCode::NOT_FOUND,
@@ -186,7 +169,6 @@ pub async fn get_url_stats(
         created_at: record.created_at,
     }))
 }
-
 
 async fn generate_unique_code(
     collection: &mongodb::Collection<UrlRecord>,

@@ -1,8 +1,8 @@
-use mongodb::bson::{oid::ObjectId, DateTime};
+use mongodb::bson::{DateTime, oid::ObjectId};
+use rand::{RngExt, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
-use rand::{distr::Alphanumeric, RngExt};
 
-#[derive(Debug,Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UrlRecord {
     // MongoDB document id.
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
@@ -14,7 +14,7 @@ pub struct UrlRecord {
     //Original Url
     pub long_url: String,
 
-    // Number of times short URL was opened 
+    // Number of times short URL was opened
     pub visits: i64,
 
     // Creation timestamp.
@@ -68,8 +68,7 @@ pub fn generate_short_code() -> String {
 
 pub fn validate_long_url(long_url: &str) -> Result<(), String> {
     // Try to parse the input as a URL.
-    let parsed_url = url::Url::parse(long_url)
-        .map_err(|_| "invalid URL format".to_string())?;
+    let parsed_url = url::Url::parse(long_url).map_err(|_| "invalid URL format".to_string())?;
 
     // Only allow http and https links.
     match parsed_url.scheme() {

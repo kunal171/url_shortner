@@ -1,15 +1,15 @@
-use axum::{routing::{get, post},
+use axum::{
     Router,
+    routing::{get, post},
 };
-use url_shortner::api::{create_short_url,redirect_short_url,get_url_stats, health, AppState};
+use url_shortner::api::{AppState, create_short_url, get_url_stats, health, redirect_short_url};
 use url_shortner::database::connect_db;
 
 #[tokio::main]
 async fn main() {
-
     //URL of App
-    let base_url = std::env::var("BASE_URL")
-    .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
 
     //Seting up DB connection
     let database = match connect_db().await {
@@ -19,7 +19,6 @@ async fn main() {
             return;
         }
     };
-
 
     println!("connected to database: {}", database.name());
 
@@ -35,7 +34,6 @@ async fn main() {
         .route("/{code}", get(redirect_short_url))
         .with_state(state);
 
-    
     let bind_address = "127.0.0.1:3001";
     //Bind the TCP listener to the address and port
     let listener = tokio::net::TcpListener::bind(bind_address)
@@ -44,8 +42,5 @@ async fn main() {
 
     println!("Server Running on http://{}", &bind_address);
 
-
-    axum::serve(listener, app)
-        .await
-        .expect("server Failed")
+    axum::serve(listener, app).await.expect("server Failed")
 }
